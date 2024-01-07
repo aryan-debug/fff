@@ -1,6 +1,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <locale.h>
+#include <magic.h>
 #include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,22 +127,46 @@ void preview(struct dirent file_or_folder) {
 }
 
 void print_files_and_folders(struct dirent **file_and_folders) {
+  magic_t cookie = magic_open(MAGIC_NONE);
+  magic_load(cookie, NULL);
   attron(COLOR_PAIR(1));
   struct dirent *current;
   wmove(dir_window, 0, 0);
   for (int j = 0; (current = file_and_folders[j]) != NULL; j++) {
+    const char *file_info = magic_file(cookie, file_and_folders[j]->d_name);
+    char *file_info_copy = malloc(strlen(file_info) * sizeof(char) + 1);
+    strcpy(file_info_copy, file_info);
+    char *file_type = strtok(file_info_copy, ",");
     switch (current->d_type) {
     case DT_DIR: {
-      mvwprintw(dir_window, j, 2, " %s", current->d_name);
+      if (strcmp(file_and_folders[j]->d_name, ".git") == 0) {
+        mvwprintw(dir_window, j, 2, "󰊢");
+      } else {
+        mvwprintw(dir_window, j, 2, "");
+      }
+      mvwprintw(dir_window, j, 4, "%s", file_and_folders[j]->d_name);
       break;
     }
     case DT_REG: {
-      mvwprintw(dir_window, j, 2, " %s", current->d_name);
-
+      if (file_type != NULL && strcmp(file_type, "C source") == 0) {
+        mvwprintw(dir_window, j, 2, "");
+      } else if (file_type != NULL && strcmp(file_type, "PDF document") == 0) {
+        mvwprintw(dir_window, j, 2, "");
+      } else if (strrchr(file_and_folders[j]->d_name, '.') != NULL &&
+                 strcmp(strrchr(file_and_folders[j]->d_name, '.'), ".md") ==
+                     0) {
+        mvwprintw(dir_window, j, 2, "");
+      } else {
+        mvwprintw(dir_window, j, 2, "");
+      }
+      mvwprintw(dir_window, j, 4, "%s", file_and_folders[j]->d_name);
       break;
     }
     }
+
+    free(file_info_copy);
   }
+  magic_close(cookie);
   wrefresh(dir_window);
 }
 
@@ -150,14 +175,18 @@ struct dirent **get_file_and_folders(char *path_name) {
   DIR *cwd = opendir(path_name);
   if (cwd == NULL) {
     printw("%s\n", strerror(errno));
+    closedir(cwd);
     return NULL;
   }
   struct dirent *dp;
   int i = 0;
   for (; ((dp = readdir(cwd)) != NULL); i++) {
-    file_and_folders[i] = dp;
+    struct dirent *copy = malloc(sizeof(*dp));
+    memcpy(copy, dp, sizeof(*dp));
+    file_and_folders[i] = copy;
   }
-  file_and_folders[i + 1] = NULL;
+  file_and_folders[i] = NULL;
+  closedir(cwd);
   return file_and_folders;
 }
 
@@ -177,7 +206,6 @@ void print_dir(char *path, int indent, int depth) {
   for (; ((dp = readdir(cwd)) != NULL);) {
 
     if (strcmp(".", dp->d_name) != 0 && strcmp("..", dp->d_name) != 0) {
-      // │
       wprintw(preview_window, "│");
       for (int i = 0; i < indent / 4; i++) {
         for (int j = 0; j < 4; j++) {
